@@ -1,29 +1,36 @@
 document.addEventListener("DOMContentLoaded", () => {
   /*
-==========================================================
-FLOWBASE — SVG HANDWRITING DRAW + FILL
-==========================================================
+  ==========================================================
+  FLOWBASE — SVG HANDWRITING DRAW + FILL
+  ==========================================================
 
-HOW TO USE
-----------
-1. Wrap your SVG letters in an element with:
-text-handwrite="404"
+  HOW TO USE
+  ----------
+  1. Add the attribute below to a wrapper:
+     text-handwrite
 
-2. Each letter should be its own SVG inside that wrapper.
+  2. Put one or more SVGs inside the wrapper.
+     Each SVG acts like one "letter" or drawing unit.
 
-3. Make sure GSAP is loaded before this script.
+  3. Optionally set global defaults:
+     window.FlowbaseDrawSVG = { ... }
 
-Example:
-<div text-handwrite="404">
-    <svg>...</svg>
-    <svg>...</svg>
-    <svg>...</svg>
-</div>
-*/
+  4. Optionally override settings per instance with attributes:
+     handwrite-stroke-color="#ff0000"
+     handwrite-draw-duration="1.2"
+     handwrite-redraw-on-hover="true"
 
-  const settings = {
-    target: "404",
+  SETTINGS PRIORITY
+  -----------------
+  defaults < global config < instance attributes
+  */
 
+  if (typeof gsap === "undefined") {
+    console.warn("FLOWBASE Draw SVG: GSAP is not loaded.");
+    return;
+  }
+
+  const DEFAULTS = {
     strokeColor: "#000",
     strokeWidth: 2.5,
     lineCap: "round",
@@ -48,26 +55,78 @@ Example:
     hoverRedrawMinGap: 150,
   };
 
-  if (typeof gsap === "undefined") {
-    console.warn("FLOWBASE Draw SVG: GSAP is not loaded.");
-    return;
+  const globalConfig = window.FlowbaseDrawSVG || {};
+  const svgNS = "http://www.w3.org/2000/svg";
+
+  function parseBoolean(value) {
+    if (value == null) return undefined;
+    if (value === "" || value === "true") return true;
+    if (value === "false") return false;
+    return undefined;
   }
 
-  const wrapper = document.querySelector(
-    `[text-handwrite="${settings.target}"]`,
-  );
-  if (!wrapper) return;
+  function parseNumber(value) {
+    if (value == null || value === "") return undefined;
+    const num = Number(value);
+    return Number.isNaN(num) ? undefined : num;
+  }
 
-  const svgs = Array.from(wrapper.querySelectorAll("svg"));
-  if (!svgs.length) return;
+  function parseString(value) {
+    return value == null || value === "" ? undefined : value;
+  }
 
-  if (wrapper.dataset.handwriteReady === "true") return;
-  wrapper.dataset.handwriteReady = "true";
+  function cleanObject(obj) {
+    return Object.fromEntries(
+      Object.entries(obj).filter(([, value]) => value !== undefined),
+    );
+  }
 
-  const svgNS = "http://www.w3.org/2000/svg";
-  const letters = [];
+  function getInstanceConfig(wrapper) {
+    return cleanObject({
+      strokeColor: parseString(wrapper.getAttribute("handwrite-stroke-color")),
+      strokeWidth: parseNumber(wrapper.getAttribute("handwrite-stroke-width")),
+      lineCap: parseString(wrapper.getAttribute("handwrite-line-cap")),
+      lineJoin: parseString(wrapper.getAttribute("handwrite-line-join")),
 
-  function buildLetter(svg, index) {
+      fillColor: parseString(wrapper.getAttribute("handwrite-fill-color")),
+      fillDelay: parseNumber(wrapper.getAttribute("handwrite-fill-delay")),
+      fillDuration: parseNumber(
+        wrapper.getAttribute("handwrite-fill-duration"),
+      ),
+
+      drawDuration: parseNumber(
+        wrapper.getAttribute("handwrite-draw-duration"),
+      ),
+      drawEase: parseString(wrapper.getAttribute("handwrite-draw-ease")),
+      strokeDelay: parseNumber(wrapper.getAttribute("handwrite-stroke-delay")),
+
+      stagger: parseNumber(wrapper.getAttribute("handwrite-stagger")),
+
+      runOnScroll: parseBoolean(
+        wrapper.getAttribute("handwrite-run-on-scroll"),
+      ),
+      rootMargin: parseString(wrapper.getAttribute("handwrite-root-margin")),
+
+      runOnHover: parseBoolean(wrapper.getAttribute("handwrite-run-on-hover")),
+      redrawOnHover: parseBoolean(
+        wrapper.getAttribute("handwrite-redraw-on-hover"),
+      ),
+
+      hoverRedrawMinGap: parseNumber(
+        wrapper.getAttribute("handwrite-hover-redraw-min-gap"),
+      ),
+    });
+  }
+
+  function getSettings(wrapper) {
+    return {
+      ...DEFAULTS,
+      ...globalConfig,
+      ...getInstanceConfig(wrapper),
+    };
+  }
+
+  function buildLetter(svg, settings, index) {
     const originalPaths = Array.from(svg.querySelectorAll("path"));
     if (!originalPaths.length) return null;
 
@@ -134,13 +193,13 @@ Example:
 
       longestLength = Math.max(longestLength, length);
 
-      strokeClone.style.strokeDasharray = length + "px";
-      strokeClone.style.strokeDashoffset = length + "px";
+      strokeClone.style.strokeDasharray = `${length}px`;
+      strokeClone.style.strokeDashoffset = `${length}px`;
 
       strokeGroup.appendChild(strokeClone);
       strokePaths.push({
         el: strokeClone,
-        length: length,
+        length,
       });
     });
 
@@ -153,7 +212,6 @@ Example:
       overlay,
       fillPaths,
       strokePaths,
-      drawDuration: settings.drawDuration,
       longestLength,
       lastHoverTime: 0,
       tl: null,
@@ -165,8 +223,8 @@ Example:
       });
 
       letter.strokePaths.forEach(({ el, length }) => {
-        el.style.strokeDasharray = length + "px";
-        el.style.strokeDashoffset = length + "px";
+        el.style.strokeDasharray = `${length}px`;
+        el.style.strokeDashoffset = `${length}px`;
       });
     }
 
@@ -181,7 +239,7 @@ Example:
 
       letter.strokePaths.forEach(({ el, length }) => {
         const pathDuration =
-          letter.drawDuration * (length / letter.longestLength);
+          settings.drawDuration * (length / letter.longestLength);
 
         tl.to(
           el,
@@ -216,53 +274,74 @@ Example:
       const now = Date.now();
       if (now - letter.lastHoverTime < settings.hoverRedrawMinGap) return;
       letter.lastHoverTime = now;
+
       if (settings.runOnHover || settings.redrawOnHover) {
         letter.playLetter();
       }
     });
+
     return letter;
   }
-  svgs.forEach((svg, index) => {
-    const letter = buildLetter(svg, index);
-    if (letter) letters.push(letter);
-  });
 
-  if (!letters.length) return;
+  function initWrapper(wrapper, wrapperIndex) {
+    if (wrapper.dataset.handwriteReady === "true") return;
+    wrapper.dataset.handwriteReady = "true";
 
-  letters.forEach((letter) => {
-    letter.resetLetter();
-  });
+    const settings = getSettings(wrapper);
+    const svgs = Array.from(wrapper.querySelectorAll("svg"));
+    if (!svgs.length) return;
 
-  let hasPlayedInitial = false;
+    const letters = [];
 
-  function playInitialSequence() {
-    if (hasPlayedInitial) return;
-    hasPlayedInitial = true;
-
-    const master = gsap.timeline();
-
-    letters.forEach((letter, index) => {
-      master.add(letter.playLetter(), index * settings.stagger);
+    svgs.forEach((svg, index) => {
+      const letter = buildLetter(svg, settings, index);
+      if (letter) letters.push(letter);
     });
+
+    if (!letters.length) return;
+
+    letters.forEach((letter) => {
+      letter.resetLetter();
+    });
+
+    let hasPlayedInitial = false;
+
+    function playInitialSequence() {
+      if (hasPlayedInitial) return;
+      hasPlayedInitial = true;
+
+      const master = gsap.timeline();
+
+      letters.forEach((letter, index) => {
+        master.add(letter.playLetter(), index * settings.stagger);
+      });
+    }
+
+    if (!settings.runOnHover && settings.runOnScroll) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              playInitialSequence();
+              observer.disconnect();
+            }
+          });
+        },
+        {
+          threshold: 0,
+          root: null,
+          rootMargin: settings.rootMargin,
+        },
+      );
+
+      observer.observe(wrapper);
+    }
   }
 
-  if (!settings.runOnHover && settings.runOnScroll) {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            playInitialSequence();
-            observer.disconnect();
-          }
-        });
-      },
-      {
-        threshold: 0,
-        root: null,
-        rootMargin: settings.rootMargin,
-      },
-    );
+  const wrappers = document.querySelectorAll("[text-handwrite]");
+  if (!wrappers.length) return;
 
-    observer.observe(wrapper);
-  }
+  wrappers.forEach((wrapper, index) => {
+    initWrapper(wrapper, index);
+  });
 });
